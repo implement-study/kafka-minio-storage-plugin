@@ -1,4 +1,4 @@
-package com.shengsheng;
+package com.shengsheng.kafka.storage.minio;
 
 import io.minio.ListObjectsArgs;
 import io.minio.MinioClient;
@@ -7,6 +7,8 @@ import io.minio.messages.Item;
 import org.apache.kafka.common.TopicIdPartition;
 
 import java.util.concurrent.ConcurrentSkipListMap;
+
+import static com.shengsheng.kafka.storage.minio.RemoteUtils.topicDirFromTopicIdPartition;
 
 /**
  * @author gongxuanzhangmelt@gmail.com
@@ -32,7 +34,7 @@ public class MinioTopicPartitionRemoteLogFinder {
             Iterable<Result<Item>> results = minioClient.listObjects(
                 ListObjectsArgs.builder()
                     .bucket(bucketName)
-                    .prefix(topicIdPartition.topic() + "-" + topicIdPartition.partition() + "/")
+                    .prefix(topicDirFromTopicIdPartition(topicIdPartition) + "/")
                     .build());
             for (Result<Item> result : results) {
                 Item item = result.get();
@@ -53,8 +55,16 @@ public class MinioTopicPartitionRemoteLogFinder {
         remoteLogSegmentMap.put(Long.valueOf(logName.substring(0, logName.length() - 4)), logName);
     }
 
+    public void remove(long offset) {
+        this.remoteLogSegmentMap.keySet().removeIf(key -> key <= offset);
+    }
+
     public String floor(long startOffset) {
-        return remoteLogSegmentMap.floorEntry(startOffset).getValue();
+        String message = String.format("topic[%s] files:[%s]", topicIdPartition.topic(), remoteLogSegmentMap.values());
+        System.out.println(message);
+        String resultName = remoteLogSegmentMap.floorEntry(startOffset).getValue();
+        System.out.println("find offset " + startOffset + "name :" + resultName);
+        return resultName;
     }
 
 }

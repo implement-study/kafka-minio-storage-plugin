@@ -18,6 +18,8 @@ val copyMinioJar by tasks.registering(Copy::class) {
 
 
 dependencies {
+    compileOnly("org.slf4j:slf4j-api:2.0.17")
+    
     implementation("org.apache.kafka:kafka-storage-api:4.0.0")
     implementation("org.apache.kafka:kafka-clients:4.0.0")
     implementation("io.minio:minio:8.5.17")
