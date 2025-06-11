@@ -25,10 +25,9 @@ public class ConsumerRunner {
         props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
 
         KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props);
-//        consumer.subscribe(List.of("testtest1"));
-        TopicPartition tp = new TopicPartition("testtest1", 0);
+//        consumer.subscribe(List.of("test-2"));
+        TopicPartition tp = new TopicPartition("test-5", 0);
         consumer.assign(Collections.singletonList(tp));
-        consumer.seek(tp,1000000);
         while (true) {
             ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(1000));
             for (ConsumerRecord<String, String> record : records) {

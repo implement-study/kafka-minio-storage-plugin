@@ -10,18 +10,16 @@ public class PathSegmentFile extends MinioSegmentFile {
 
     private final Path path;
 
-    public PathSegmentFile(MinioSegmentFileset.SegmentFileType type, String dir, long offset , Path path) {
+    public PathSegmentFile(MinioSegmentFileset.SegmentFileType type, String dir, long offset, Path path) {
         super(type, dir, offset);
         this.path = path;
     }
 
     @Override
     public void upload(MinioClientWrapper client) throws Exception {
-        client.uploadLocalPath(this.objectName(), path);
+        if (path != null) {
+            client.uploadLocalPath(this.objectName(), path);
+        }
     }
 
-    @Override
-    public void remove(MinioClientWrapper client) {
-
-    }
 }

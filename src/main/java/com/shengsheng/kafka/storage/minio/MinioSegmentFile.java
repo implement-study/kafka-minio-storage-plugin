@@ -1,10 +1,12 @@
 package com.shengsheng.kafka.storage.minio;
 
 
+import java.io.InputStream;
+
 /**
  * @author gongxuanzhangmelt@gmail.com
  **/
-public class MinioSegmentFile {
+public abstract class MinioSegmentFile implements MinioSource {
 
     private final MinioSegmentFileset.SegmentFileType type;
 
@@ -12,7 +14,7 @@ public class MinioSegmentFile {
 
     private final long offset;
 
-    public MinioSegmentFile(MinioSegmentFileset.SegmentFileType type, String dir, long offset) {
+    protected MinioSegmentFile(MinioSegmentFileset.SegmentFileType type, String dir, long offset) {
         this.type = type;
         this.dir = dir;
         this.offset = offset;
@@ -24,6 +26,16 @@ public class MinioSegmentFile {
 
     public String objectName() {
         return dir + "/" + filename();
+    }
+    
+    @Override
+    public void remove(MinioClientWrapper client) throws Exception {
+        client.removeObject(this.objectName());
+    }
+
+    @Override
+    public InputStream fileStream(MinioClientWrapper client, long startPosition) throws Exception {
+        return client.objectStream(this.objectName(), startPosition);
     }
 
 }

@@ -1,5 +1,6 @@
 package com.shengsheng.kafka.storage.minio;
 
+import io.minio.GetObjectArgs;
 import io.minio.ListObjectsArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
@@ -12,6 +13,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayInputStream;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -59,14 +61,14 @@ public class MinioClientWrapper implements AutoCloseable {
                 .build());
     }
 
-    public List<String> listDir(String dir) throws Exception {
-        return listDir(dir, filename -> true);
+    public List<String> listDirFilename(String dir) throws Exception {
+        return listDirFilename(dir, filename -> true);
     }
 
     /**
      * return filename without dir prefix
      **/
-    public List<String> listDir(String dir, Predicate<String> filenameFilter) throws Exception {
+    public List<String> listDirFilename(String dir, Predicate<String> filenameFilter) throws Exception {
         Iterable<Result<Item>> allObjects = client.listObjects(
             ListObjectsArgs.builder()
                 .bucket(kafkaDataBucket)
@@ -82,6 +84,15 @@ public class MinioClientWrapper implements AutoCloseable {
             }
         }
         return result;
+    }
+
+    public InputStream objectStream(String ob, long startPosition) throws Exception {
+        return client.getObject(
+            GetObjectArgs.builder()
+                .bucket(kafkaDataBucket)
+                .object(ob)
+                .offset(startPosition)
+                .build());
     }
 
 

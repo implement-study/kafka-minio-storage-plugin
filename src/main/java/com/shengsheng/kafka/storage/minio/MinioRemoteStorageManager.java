@@ -1,64 +1,50 @@
 package com.shengsheng.kafka.storage.minio;
 
 import io.minio.BucketExistsArgs;
-import io.minio.GetObjectArgs;
-import io.minio.ListObjectsArgs;
 import io.minio.MakeBucketArgs;
 import io.minio.MinioClient;
-import io.minio.PutObjectArgs;
-import io.minio.RemoveObjectsArgs;
-import io.minio.Result;
-import io.minio.UploadObjectArgs;
-import io.minio.messages.DeleteError;
-import io.minio.messages.DeleteObject;
-import io.minio.messages.Item;
 import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.server.log.remote.storage.LogSegmentData;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageException;
 import org.apache.kafka.server.log.remote.storage.RemoteStorageManager;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.ByteBuffer;
-import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
 
-import static com.shengsheng.kafka.storage.minio.RemoteUtils.filenamePrefixFromOffset;
-import static com.shengsheng.kafka.storage.minio.RemoteUtils.topicDirFromTopicIdPartition;
+import static com.shengsheng.kafka.storage.minio.MinioSegmentFileset.topicDir;
 
 /**
  * @author gongxuanzhangmelt@gmail.com
  **/
 public class MinioRemoteStorageManager implements RemoteStorageManager {
+    
+    private static final Logger LOG = LoggerFactory.getLogger(MinioRemoteStorageManager.class);
+    
+    public static final String MINIO_HOST_CONFIG_KEY = "minio.host";
 
     private MinioClient minioClient;
 
+    private MinioClientWrapper wrapper;
+
     private String bucketName;
 
-    private final Map<TopicIdPartition, MinioTopicPartitionRemoteLogFinder> topicFinderMap = new ConcurrentHashMap<>();
-
     @Override
-    public Optional<RemoteLogSegmentMetadata.CustomMetadata> copyLogSegmentData(RemoteLogSegmentMetadata remoteLogSegmentMetadata, LogSegmentData logSegmentData) throws RemoteStorageException {
+    public Optional<RemoteLogSegmentMetadata.CustomMetadata> copyLogSegmentData(RemoteLogSegmentMetadata metadata,
+                                                                                LogSegmentData logSegmentData) throws RemoteStorageException {
+        MinioSegmentFileset fileset = MinioSegmentFileset.open(wrapper, metadata, logSegmentData);
         try {
-            TopicIdPartition topicIdPartition = remoteLogSegmentMetadata.topicIdPartition();
-            uploadLocalPathToMinio(topicIdPartition, logSegmentData.logSegment());
-            uploadLocalPathToMinio(topicIdPartition, logSegmentData.offsetIndex());
-            uploadLocalPathToMinio(topicIdPartition, logSegmentData.timeIndex());
-            Optional<Path> txnIndex = logSegmentData.transactionIndex();
-            if (txnIndex.isPresent()) {
-                uploadLocalPathToMinio(topicIdPartition, txnIndex.get());
-            }
-            uploadLocalPathToMinio(topicIdPartition, logSegmentData.producerSnapshotIndex());
-            uploadLeaderEpochIndex(remoteLogSegmentMetadata, logSegmentData.leaderEpochIndex());
-            safeGetFinder(remoteLogSegmentMetadata).put(logSegmentData.logSegment().getFileName().toString());
+            fileset.uploadToMinio();
         } catch (Exception e) {
-            e.printStackTrace();
+            try {
+                fileset.removeFromMinio();
+            } catch (Exception ex) {
+                //  ignore remove exception
+            }
             throw new RemoteStorageException(e);
         }
         return Optional.empty();
@@ -75,17 +61,10 @@ public class MinioRemoteStorageManager implements RemoteStorageManager {
                                        int endPosition) throws RemoteStorageException {
         String message = String.format("fetchLogSegment,start[%d]", metadata.startOffset());
         System.out.println(message);
-        MinioTopicPartitionRemoteLogFinder finder = safeGetFinder(metadata);
-        String fileName = finder.floor(metadata.startOffset());
-        String dir = topicDirFromTopicIdPartition(metadata.topicIdPartition());
+        MinioSegmentFileset fileset = MinioSegmentFileset.open(wrapper, metadata);
+        MinioSegmentFile log = fileset.getSegmentFile(MinioSegmentFileset.SegmentFileType.LOG);
         try {
-            System.out.printf("read bucket [%s] object[%s] ", bucketName, dir + "/" + fileName);
-            return minioClient.getObject(
-                GetObjectArgs.builder()
-                    .bucket(bucketName)
-                    .object(dir + "/" + fileName)
-                    .offset((long) startPosition)
-                    .build());
+            return log.fileStream(wrapper, startPosition);
         } catch (Exception e) {
             throw new RemoteStorageException(e);
         }
@@ -93,78 +72,31 @@ public class MinioRemoteStorageManager implements RemoteStorageManager {
 
 
     @Override
-    public InputStream fetchIndex(RemoteLogSegmentMetadata remoteLogSegmentMetadata, IndexType indexType) throws RemoteStorageException {
-        System.out.println("开始fetchIndex");
-        long start = remoteLogSegmentMetadata.startOffset();
-        long endOffset = remoteLogSegmentMetadata.endOffset();
+    public InputStream fetchIndex(RemoteLogSegmentMetadata metadata, IndexType indexType) throws RemoteStorageException {
+        long start = metadata.startOffset();
+        long endOffset = metadata.endOffset();
         System.out.printf("fetch index [%s] start[%d] end[%d] %n", indexType, start, endOffset);
-        MinioTopicPartitionRemoteLogFinder finder = safeGetFinder(remoteLogSegmentMetadata);
-        String fileName = finder.floor(remoteLogSegmentMetadata.startOffset());
-        String indexName = fileName.substring(0, fileName.length() - 4);
-        switch (indexType) {
-            case OFFSET -> indexName = indexName.concat(".index");
-            case TIMESTAMP -> indexName = indexName.concat(".timeindex");
-            case TRANSACTION -> indexName = indexName.concat(".txnindex");
-            case PRODUCER_SNAPSHOT -> indexName = indexName.concat(".snapshot");
-            case LEADER_EPOCH -> indexName = indexName.concat(".leader-epoch-checkpoint");
-        }
-        String dir = topicDirFromTopicIdPartition(remoteLogSegmentMetadata.topicIdPartition());
+
+        MinioSegmentFileset fileset = MinioSegmentFileset.open(wrapper, metadata);
+        MinioSegmentFile segmentFile = fileset.getSegmentFile(convertType(indexType));
         try {
-            return minioClient.getObject(
-                GetObjectArgs.builder()
-                    .bucket(bucketName)
-                    .object(dir + "/" + indexName)
-                    .build());
+            return segmentFile.fileStream(wrapper, metadata.startOffset());
         } catch (Exception e) {
-            System.out.println("load " + remoteLogSegmentMetadata.topicIdPartition().topic() + ".type:" + indexType);
             return InputStream.nullInputStream();
         }
     }
-
+    // minio/minio:RELEASE.2025-04-08T15-41-24Z
     @Override
     public void deleteLogSegmentData(RemoteLogSegmentMetadata metadata) throws RemoteStorageException {
         try {
             TopicIdPartition tip = metadata.topicIdPartition();
             System.out.printf("deleteLogSegmentData topic %s partition %d start [%d] end [%d] %n",
                 tip.topic(), tip.partition(), metadata.startOffset(), metadata.endOffset());
-            String dir = topicDirFromTopicIdPartition(tip);
-            long deleteStartOffset = metadata.startOffset();
-            Iterable<Result<Item>> results = minioClient.listObjects(
-                ListObjectsArgs.builder()
-                    .bucket(bucketName)
-                    .prefix(dir + "/")
-                    .build()
-            );
-
-            List<DeleteObject> objectsToDelete = new ArrayList<>();
-            List<String> removeList = new ArrayList<>();
-            for (Result<Item> result : results) {
-                Item item = result.get();
-                String objectName = item.objectName();
-                String offsetName = objectName.substring(objectName.lastIndexOf("/") + 1, objectName.indexOf("."));
+            this.wrapper.removeDir(topicDir(tip), filename -> {
+                String offsetName = filename.substring(0, filename.lastIndexOf("."));
                 long fileOffset = Long.parseLong(offsetName);
-                if (fileOffset <= deleteStartOffset) {
-                    objectsToDelete.add(new DeleteObject(item.objectName()));
-                    removeList.add(objectName);
-                }
-            }
-            if (objectsToDelete.isEmpty()) {
-                return;
-            }
-
-            Iterable<Result<DeleteError>> deleteResult = minioClient.removeObjects(
-                RemoveObjectsArgs.builder()
-                    .bucket(bucketName)
-                    .objects(objectsToDelete)
-                    .build());
-            for (Result<DeleteError> deleteErrorResult : deleteResult) {
-                deleteErrorResult.get();
-            }
-            System.out.println("delete " + removeList);
-            var finder = topicFinderMap.get(metadata.topicIdPartition());
-            if (finder != null) {
-                finder.remove(deleteStartOffset);
-            }
+                return fileOffset <= metadata.startOffset();
+            });
         } catch (Exception e) {
             throw new RemoteStorageException(e);
         }
@@ -184,12 +116,14 @@ public class MinioRemoteStorageManager implements RemoteStorageManager {
 
     @Override
     public void configure(Map<String, ?> configs) {
+        String mininHost = configs.get(MINIO_HOST_CONFIG_KEY).toString();
         minioClient = MinioClient.builder()
-            .endpoint("http://localhost:9000")
+            //.endpoint("http://localhost:9000")
+            .endpoint(mininHost)
             .credentials("minioadmin", "minioadmin")
             .build();
-
         bucketName = "kafka-data";
+        this.wrapper = new MinioClientWrapper(minioClient,bucketName);
         try {
             boolean found = minioClient.bucketExists(BucketExistsArgs.builder().bucket(bucketName).build());
             if (!found) {
@@ -200,37 +134,15 @@ public class MinioRemoteStorageManager implements RemoteStorageManager {
         }
     }
 
-    private void uploadLocalPathToMinio(TopicIdPartition topicIdPartition, Path localPath) throws Exception {
-        String dir = topicDirFromTopicIdPartition(topicIdPartition);
-        minioClient.uploadObject(
-            UploadObjectArgs.builder()
-                .bucket(bucketName)
-                .object(dir + "/" + localPath.getFileName().toString())
-                .filename(localPath.toAbsolutePath().toString())
-                .build());
+    private MinioSegmentFileset.SegmentFileType convertType(IndexType type) {
+        return switch (type) {
+            case OFFSET -> MinioSegmentFileset.SegmentFileType.OFFSET;
+            case TIMESTAMP -> MinioSegmentFileset.SegmentFileType.TIMESTAMP;
+            case PRODUCER_SNAPSHOT -> MinioSegmentFileset.SegmentFileType.SNAPSHOT;
+            case TRANSACTION -> MinioSegmentFileset.SegmentFileType.TXN;
+            case LEADER_EPOCH -> MinioSegmentFileset.SegmentFileType.EPOCH;
+        };
     }
 
-    private void uploadLeaderEpochIndex(RemoteLogSegmentMetadata remoteLogSegmentMetadata, ByteBuffer buffer) throws Exception {
-
-        String dir = topicDirFromTopicIdPartition(remoteLogSegmentMetadata.topicIdPartition());
-        String suffix = ".leader-epoch-checkpoint";
-        byte[] data = new byte[buffer.remaining()];
-        String filename = filenamePrefixFromOffset(remoteLogSegmentMetadata.startOffset());
-        buffer.get(data);
-        ByteArrayInputStream inputStream = new ByteArrayInputStream(data);
-        minioClient.putObject(
-            PutObjectArgs.builder()
-                .bucket(bucketName)
-                .object(dir + "/" + filename.concat(suffix))
-                .stream(inputStream, data.length, -1)
-                .contentType("application/octet-stream")
-                .build()
-        );
-    }
-
-    private MinioTopicPartitionRemoteLogFinder safeGetFinder(RemoteLogSegmentMetadata remoteLogSegmentMetadata) {
-        return topicFinderMap.computeIfAbsent(remoteLogSegmentMetadata.topicIdPartition(),
-            tip -> new MinioTopicPartitionRemoteLogFinder(minioClient, tip, bucketName));
-    }
 
 }

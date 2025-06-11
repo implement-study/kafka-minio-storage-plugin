@@ -1,13 +1,21 @@
 package com.shengsheng.kafka.storage.minio;
 
 import org.apache.kafka.common.TopicIdPartition;
+import org.apache.kafka.server.log.remote.storage.LogSegmentData;
 import org.apache.kafka.server.log.remote.storage.RemoteLogSegmentMetadata;
 
 import java.text.NumberFormat;
+import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
 
-import static com.shengsheng.kafka.storage.minio.RemoteUtils.topicDirFromTopicIdPartition;
+import static com.shengsheng.kafka.storage.minio.MinioSegmentFileset.SegmentFileType.EPOCH;
+import static com.shengsheng.kafka.storage.minio.MinioSegmentFileset.SegmentFileType.LOG;
+import static com.shengsheng.kafka.storage.minio.MinioSegmentFileset.SegmentFileType.OFFSET;
+import static com.shengsheng.kafka.storage.minio.MinioSegmentFileset.SegmentFileType.SNAPSHOT;
+import static com.shengsheng.kafka.storage.minio.MinioSegmentFileset.SegmentFileType.TIMESTAMP;
+import static com.shengsheng.kafka.storage.minio.MinioSegmentFileset.SegmentFileType.TXN;
 
 /**
  * Represents a group of MinioSegmentFiles corresponding to a single Kafka log segment.
@@ -26,32 +34,76 @@ import static com.shengsheng.kafka.storage.minio.RemoteUtils.topicDirFromTopicId
 public class MinioSegmentFileset {
 
     private final Map<SegmentFileType, MinioSegmentFile> files;
+    
     private final MinioClientWrapper client;
-    private final long offset;
-    private final TopicIdPartition topicIdPartition;
 
 
     private MinioSegmentFileset(MinioClientWrapper client, RemoteLogSegmentMetadata metadata) {
         this.files = new EnumMap<>(SegmentFileType.class);
         this.client = client;
-        this.offset = metadata.startOffset();
-        this.topicIdPartition = metadata.topicIdPartition();
-        for (SegmentFileType type : SegmentFileType.values()) {
-            files.put(type, new MinioSegmentFile(type, topicDirFromTopicIdPartition(topicIdPartition), offset));
-        }
     }
 
 
+    /**
+     * open fileset with {@link LogSegmentData} use for copy.
+     **/
+    public static MinioSegmentFileset open(MinioClientWrapper client, RemoteLogSegmentMetadata metadata,
+                                           LogSegmentData data) {
+        MinioSegmentFileset fileset = new MinioSegmentFileset(client, metadata);
+        String dir = topicDir(metadata.topicIdPartition());
+        long offset = metadata.startOffset();
+        fileset.files.put(LOG, new PathSegmentFile(LOG, dir, offset, data.logSegment()));
+        fileset.files.put(OFFSET, new PathSegmentFile(OFFSET, dir, offset, data.offsetIndex()));
+        fileset.files.put(TIMESTAMP, new PathSegmentFile(TIMESTAMP, dir, offset, data.timeIndex()));
+        fileset.files.put(TXN, new PathSegmentFile(TXN, dir, offset, data.transactionIndex().orElse(null)));
+        fileset.files.put(SNAPSHOT, new PathSegmentFile(SNAPSHOT, dir, offset, data.producerSnapshotIndex()));
+        fileset.files.put(EPOCH, new ByteBufferSegmentFile(EPOCH, dir, offset, data.leaderEpochIndex()));
+        return fileset;
+    }
+
+
+    /**
+     * open fileset without {@link LogSegmentData} use for fetch.
+     **/
     public static MinioSegmentFileset open(MinioClientWrapper client, RemoteLogSegmentMetadata metadata) {
-        return new MinioSegmentFileset(client, metadata);
+        MinioSegmentFileset fileset = new MinioSegmentFileset(client, metadata);
+        String dir = topicDir(metadata.topicIdPartition());
+        for (SegmentFileType fileType : SegmentFileType.values()) {
+            fileset.files.put(fileType, new RemoteSegmentFile(fileType, dir, metadata.startOffset()));
+        }
+        return fileset;
     }
 
     public void uploadToMinio() throws Exception {
-        files.values().forEach(client::uploadFile);
+        for (MinioSegmentFile file : files.values()) {
+            file.upload(client);
+        }
     }
 
     public void removeFromMinio() throws Exception {
+        List<Exception> foreachExceptions = new ArrayList<>();
+        for (MinioSegmentFile file : files.values()) {
+            try {
+                file.remove(client);
+            } catch (Exception e) {
+                foreachExceptions.add(e);
+            }
+        }
+        if (!foreachExceptions.isEmpty()) {
+            Exception main = new Exception("Errors occurred during processing");
+            for (Throwable suppressed : foreachExceptions) {
+                main.addSuppressed(suppressed);
+            }
+            throw main;
+        }
+    }
 
+    public MinioSegmentFile getSegmentFile(SegmentFileType type) {
+        return this.files.get(type);
+    }
+
+    public static String topicDir(TopicIdPartition topicIdPartition) {
+        return topicIdPartition.topic() + "-" + topicIdPartition.partition();
     }
 
     public enum SegmentFileType {

@@ -20,5 +20,5 @@ public interface MinioSource {
     void remove(MinioClientWrapper client) throws Exception;
 
     
-    InputStream download(MinioClientWrapper client, int startPosition) throws Exception;
+    InputStream fileStream(MinioClientWrapper client, long startPosition) throws Exception;
 }
