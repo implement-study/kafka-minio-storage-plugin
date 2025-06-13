@@ -17,7 +17,7 @@ public class ByteBufferSegmentFile extends MinioSegmentFile {
     }
 
     @Override
-    public void upload(MinioClientWrapper client) throws Exception {
+    public void upload(MinioClient client) throws Exception {
         client.uploadByteBuffer(this.objectName(), this.byteBuffer);
     }
    

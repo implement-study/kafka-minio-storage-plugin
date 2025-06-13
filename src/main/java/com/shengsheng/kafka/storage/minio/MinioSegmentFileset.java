@@ -34,11 +34,11 @@ import static com.shengsheng.kafka.storage.minio.MinioSegmentFileset.SegmentFile
 public class MinioSegmentFileset {
 
     private final Map<SegmentFileType, MinioSegmentFile> files;
-    
-    private final MinioClientWrapper client;
+
+    private final MinioClient client;
 
 
-    private MinioSegmentFileset(MinioClientWrapper client, RemoteLogSegmentMetadata metadata) {
+    private MinioSegmentFileset(MinioClient client) {
         this.files = new EnumMap<>(SegmentFileType.class);
         this.client = client;
     }
@@ -47,9 +47,9 @@ public class MinioSegmentFileset {
     /**
      * open fileset with {@link LogSegmentData} use for copy.
      **/
-    public static MinioSegmentFileset open(MinioClientWrapper client, RemoteLogSegmentMetadata metadata,
+    public static MinioSegmentFileset open(MinioClient client, RemoteLogSegmentMetadata metadata,
                                            LogSegmentData data) {
-        MinioSegmentFileset fileset = new MinioSegmentFileset(client, metadata);
+        MinioSegmentFileset fileset = new MinioSegmentFileset(client);
         String dir = topicDir(metadata.topicIdPartition());
         long offset = metadata.startOffset();
         fileset.files.put(LOG, new PathSegmentFile(LOG, dir, offset, data.logSegment()));
@@ -65,8 +65,8 @@ public class MinioSegmentFileset {
     /**
      * open fileset without {@link LogSegmentData} use for fetch.
      **/
-    public static MinioSegmentFileset open(MinioClientWrapper client, RemoteLogSegmentMetadata metadata) {
-        MinioSegmentFileset fileset = new MinioSegmentFileset(client, metadata);
+    public static MinioSegmentFileset open(MinioClient client, RemoteLogSegmentMetadata metadata) {
+        MinioSegmentFileset fileset = new MinioSegmentFileset(client);
         String dir = topicDir(metadata.topicIdPartition());
         for (SegmentFileType fileType : SegmentFileType.values()) {
             fileset.files.put(fileType, new RemoteSegmentFile(fileType, dir, metadata.startOffset()));

@@ -16,7 +16,7 @@ public class PathSegmentFile extends MinioSegmentFile {
     }
 
     @Override
-    public void upload(MinioClientWrapper client) throws Exception {
+    public void upload(MinioClient client) throws Exception {
         if (path != null) {
             client.uploadLocalPath(this.objectName(), path);
         }

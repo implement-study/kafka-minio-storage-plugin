@@ -15,7 +15,7 @@ public class RemoteSegmentFile extends MinioSegmentFile {
     }
 
     @Override
-    public void upload(MinioClientWrapper client) throws Exception {
+    public void upload(MinioClient client) throws Exception {
         LOG.warn("remote file can't upload to minio object :[{}]", this.objectName());
     }
 }

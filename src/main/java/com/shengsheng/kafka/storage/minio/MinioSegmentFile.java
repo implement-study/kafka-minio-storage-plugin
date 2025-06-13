@@ -29,12 +29,12 @@ public abstract class MinioSegmentFile implements MinioSource {
     }
     
     @Override
-    public void remove(MinioClientWrapper client) throws Exception {
+    public void remove(MinioClient client) throws Exception {
         client.removeObject(this.objectName());
     }
 
     @Override
-    public InputStream fileStream(MinioClientWrapper client, long startPosition) throws Exception {
+    public InputStream fileStream(MinioClient client, long startPosition) throws Exception {
         return client.objectStream(this.objectName(), startPosition);
     }
 

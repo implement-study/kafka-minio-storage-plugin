@@ -1,8 +1,9 @@
 package com.shengsheng.kafka.storage.minio;
 
+import io.minio.BucketExistsArgs;
 import io.minio.GetObjectArgs;
 import io.minio.ListObjectsArgs;
-import io.minio.MinioClient;
+import io.minio.MakeBucketArgs;
 import io.minio.PutObjectArgs;
 import io.minio.RemoveObjectsArgs;
 import io.minio.Result;
@@ -25,19 +26,26 @@ import java.util.function.Predicate;
 /**
  * @author gongxuanzhangmelt@gmail.com
  **/
-public class MinioClientWrapper implements AutoCloseable {
+public class MinioClient implements AutoCloseable {
 
-    private static final Logger LOG = LoggerFactory.getLogger(MinioClientWrapper.class);
+    private static final Logger LOG = LoggerFactory.getLogger(MinioClient.class);
 
-    private final MinioClient client;
+    private final io.minio.MinioClient client;
 
     private final String kafkaDataBucket;
 
-    public MinioClientWrapper(MinioClient minioClient, String kafkaDataBucket) {
+    public MinioClient(io.minio.MinioClient minioClient, String kafkaDataBucket) {
         this.client = minioClient;
         this.kafkaDataBucket = kafkaDataBucket;
     }
 
+
+    public void createBucketIfNotExist(String bucketName) throws Exception {
+        boolean found = client.bucketExists(BucketExistsArgs.builder().bucket(bucketName).build());
+        if (!found) {
+            client.makeBucket(MakeBucketArgs.builder().bucket(bucketName).build());
+        }
+    }
 
     public void uploadLocalPath(String objectName, Path path) throws Exception {
         client.uploadObject(
@@ -133,5 +141,4 @@ public class MinioClientWrapper implements AutoCloseable {
     public void close() throws Exception {
         this.client.close();
     }
-
 }

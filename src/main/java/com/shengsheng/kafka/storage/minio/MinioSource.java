@@ -12,13 +12,14 @@ public interface MinioSource {
     /**
      * upload this source to minio
      **/
-    void upload(MinioClientWrapper client) throws Exception;
+    void upload(MinioClient client) throws Exception;
 
     /**
      * remove this source from minio if exists
      **/
-    void remove(MinioClientWrapper client) throws Exception;
+    void remove(MinioClient client) throws Exception;
 
-    
-    InputStream fileStream(MinioClientWrapper client, long startPosition) throws Exception;
+
+    InputStream fileStream(MinioClient client, long startPosition) throws Exception;
+
 }
