@@ -1,7 +1,5 @@
 package com.shengsheng.kafka.storage.minio;
 
-import io.minio.BucketExistsArgs;
-import io.minio.MakeBucketArgs;
 import org.apache.kafka.common.TopicIdPartition;
 import org.apache.kafka.common.errors.InvalidConfigurationException;
 import org.apache.kafka.server.log.remote.storage.LogSegmentData;
@@ -14,6 +12,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 import static com.shengsheng.kafka.storage.minio.MinioSegmentFileset.topicDir;
@@ -58,8 +57,7 @@ public class MinioRemoteStorageManager implements RemoteStorageManager {
     @Override
     public InputStream fetchLogSegment(RemoteLogSegmentMetadata metadata, int startPosition,
                                        int endPosition) throws RemoteStorageException {
-        String message = String.format("fetchLogSegment,start[%d]", metadata.startOffset());
-        System.out.println(message);
+        LOG.info("fetchLogSegment start[{}]", metadata.startOffset());
         MinioSegmentFileset fileset = MinioSegmentFileset.open(minioClient, metadata);
         MinioSegmentFile log = fileset.getSegmentFile(MinioSegmentFileset.SegmentFileType.LOG);
         try {
@@ -74,7 +72,7 @@ public class MinioRemoteStorageManager implements RemoteStorageManager {
     public InputStream fetchIndex(RemoteLogSegmentMetadata metadata, IndexType indexType) throws RemoteStorageException {
         long start = metadata.startOffset();
         long endOffset = metadata.endOffset();
-        System.out.printf("fetch index [%s] start[%d] end[%d] %n", indexType, start, endOffset);
+        LOG.info("fetch index [{}] start[{}] end[{}]", indexType, start, endOffset);
 
         MinioSegmentFileset fileset = MinioSegmentFileset.open(minioClient, metadata);
         MinioSegmentFile segmentFile = fileset.getSegmentFile(convertType(indexType));
@@ -85,13 +83,12 @@ public class MinioRemoteStorageManager implements RemoteStorageManager {
         }
     }
 
-    // minio/minio:RELEASE.2025-04-08T15-41-24Z
     @Override
     public void deleteLogSegmentData(RemoteLogSegmentMetadata metadata) throws RemoteStorageException {
         try {
             TopicIdPartition tip = metadata.topicIdPartition();
-            System.out.printf("deleteLogSegmentData topic %s partition %d start [%d] end [%d] %n",
-                tip.topic(), tip.partition(), metadata.startOffset(), metadata.endOffset());
+            LOG.info("deleteLogSegmentData topic {} partition {} start [{}] end [{}] ", tip.topic(), tip.partition(),
+                metadata.startOffset(), metadata.endOffset());
             this.minioClient.removeDir(topicDir(tip), filename -> {
                 String offsetName = filename.substring(0, filename.lastIndexOf("."));
                 long fileOffset = Long.parseLong(offsetName);
@@ -106,7 +103,9 @@ public class MinioRemoteStorageManager implements RemoteStorageManager {
     @Override
     public void close() throws IOException {
         try {
-            minioClient.close();
+            if (minioClient != null) {
+                minioClient.close();
+            }
         } catch (IOException e) {
             throw e;
         } catch (Exception e) {
@@ -116,9 +115,9 @@ public class MinioRemoteStorageManager implements RemoteStorageManager {
 
     @Override
     public void configure(Map<String, ?> configs) {
-        String endpoint = configs.get(MINIO_ENDPOINT_CONFIG_KEY).toString();
-        String username = configs.get(MINIO_USERNAME_CONFIG_KEY).toString();
-        String password = configs.get(MINIO_PASSWORD_CONFIG_KEY).toString();
+        String endpoint = getRequireConfig(configs, MINIO_ENDPOINT_CONFIG_KEY);
+        String username = getRequireConfig(configs, MINIO_USERNAME_CONFIG_KEY);
+        String password = getRequireConfig(configs, MINIO_PASSWORD_CONFIG_KEY);
         String bucketName = "kafka-data";
         if (configs.containsKey(MINIO_KAFKA_BUCKET_CONFIG_KEY)) {
             bucketName = configs.get(MINIO_KAFKA_BUCKET_CONFIG_KEY).toString();
@@ -132,6 +131,12 @@ public class MinioRemoteStorageManager implements RemoteStorageManager {
         } catch (Exception e) {
             throw new InvalidConfigurationException("init minio client error");
         }
+    }
+
+    public String getRequireConfig(Map<String, ?> configs, String key) {
+        Object value = configs.get(key);
+        Objects.requireNonNull(configs.get(MINIO_ENDPOINT_CONFIG_KEY), "minio config '" + key + "' can not be null");
+        return value.toString();
     }
 
     private MinioSegmentFileset.SegmentFileType convertType(IndexType type) {

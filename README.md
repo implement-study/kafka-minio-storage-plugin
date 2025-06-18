@@ -27,3 +27,21 @@ docker run -d  \
 ./gradlew buildMinioPlugin
 
 ```
+
+
+### 创建主题
+
+你可以直接运行下面的gradle task , 创建一个分层存储的主题 
+```shell
+
+./gradlew createTieredTopic -PtopicName=test1 -Pbootstrap=localhost:9092
+
+```
+
+### 生产数据
+
+你可以直接运行下面的gradle task, 给目标topic 生产顺序数据，多次执行也是有序的，可以指定执行间隔和每次发送的数据量
+
+```shell
+./gradlew produceData -PtopicName=test1 -Pbootstrap=localhost:9092 -PdelayMillis=5000 -Pcount=300
+```

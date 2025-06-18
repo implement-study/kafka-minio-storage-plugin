@@ -1,3 +1,5 @@
+import com.shengsheng.kafka.storage.build.CreateTopicTask
+
 plugins {
     id("java-library")
     id("com.github.johnrengelman.shadow").version("8.1.1")
@@ -19,21 +21,45 @@ val copyMinioJar by tasks.registering(Copy::class) {
     into(classPath)
 }
 
+tasks.register("createTieredTopic", CreateTopicTask::class) {
+    group = "tiered"
+    description = "create topic for tiered storage"
+    
+    
+}
 
-val buildMinioPlugin by tasks.registering(Copy::class) {
+tasks.register("buildMinioPlugin") {
+    group = "tiered"
+    description = "build jar and print config"
     dependsOn("jar")
     dependsOn("copyMinioJar")
-    println("""
+    doLast {
+        println(
+            """
         remote.log.storage.system.enable=true
         remote.log.metadata.manager.listener.name=PLAINTEXT
         remote.log.storage.manager.class.name=com.shengsheng.kafka.storage.minio.MinioRemoteStorageManager
         remote.log.storage.manager.class.path=${classPath}/*
         remote.log.storage.manager.impl.prefix=rsm.config.
         remote.log.metadata.manager.impl.prefix=rlmm.config.
-        rlmm.config.minio.endpoint=http://localhost:9000
+        rsm.config.minio.endpoint=http://localhost:9000
+        rsm.config.minio.username=minioadmin
+        rsm.config.minio.password=minioadmin
+        rsm.config.minio.kafka.bucket=kafka-data
         rlmm.config.remote.log.metadata.topic.replication.factor=1
         log.retention.check.interval.ms=1000
-    """.trimIndent())
+    """.trimIndent()
+        )
+        println()
+        println(
+            "------------------------ you can run this command to format the metadata ---------------"
+        )
+        println("")
+        println("uuid=\$(bin/kafka-storage.sh random-uuid)")
+        println("bin/kafka-storage.sh format --standalone -t \$uuid -c config/server.properties")
+        println("bin/kafka-server-start.sh config/server.properties")
+
+    }
 }
 
 
