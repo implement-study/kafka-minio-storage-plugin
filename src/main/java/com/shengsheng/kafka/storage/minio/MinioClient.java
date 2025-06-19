@@ -125,7 +125,13 @@ public class MinioClient implements AutoCloseable {
             RemoveObjectsArgs.builder()
                 .bucket(kafkaDataBucket)
                 .objects(deleteObjects.values())
-                .build());
+                .build()).forEach(result -> {
+            try {
+                result.get();
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
         LOG.info("delete [{}] from minio dir[{}]", deleteObjects.keySet(), dir);
     }
 

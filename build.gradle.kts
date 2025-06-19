@@ -1,4 +1,5 @@
 import com.shengsheng.kafka.storage.build.CreateTopicTask
+import com.shengsheng.kafka.storage.build.ProducerTask
 
 plugins {
     id("java-library")
@@ -24,8 +25,12 @@ val copyMinioJar by tasks.registering(Copy::class) {
 tasks.register("createTieredTopic", CreateTopicTask::class) {
     group = "tiered"
     description = "create topic for tiered storage"
-    
-    
+}
+
+
+tasks.register("produceData", ProducerTask::class) {
+    group = "tiered"
+    description = "producer seq message to tiered topic"
 }
 
 tasks.register("buildMinioPlugin") {

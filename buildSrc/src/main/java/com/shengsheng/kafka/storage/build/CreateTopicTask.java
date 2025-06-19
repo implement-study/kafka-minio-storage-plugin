@@ -23,8 +23,10 @@ public class CreateTopicTask extends DefaultTask {
     public void createTopic() throws ExecutionException, InterruptedException {
         String topicName = (String) getProject().findProperty("topicName");
         String bootstrap = (String) getProject().findProperty("bootstrap");
+        String partitions = (String) getProject().findProperty("partitions");
         Objects.requireNonNull(topicName,"topicName must not be null");
         Objects.requireNonNull(bootstrap,"bootstrap must not be null");
+        Objects.requireNonNull(partitions,"partitions must not be null");
         Map<String, Object> adminConfig = Map.of(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap);
 
         try (AdminClient adminClient = AdminClient.create(adminConfig)) {
@@ -36,7 +38,7 @@ public class CreateTopicTask extends DefaultTask {
             topicConfig.put(TopicConfig.SEGMENT_BYTES_CONFIG, "1048576");
             topicConfig.put(TopicConfig.FILE_DELETE_DELAY_MS_CONFIG, "1000");
 
-            NewTopic topic = new NewTopic(topicName, 1, (short) 1).configs(topicConfig);
+            NewTopic topic = new NewTopic(topicName, Integer.parseInt(partitions), (short) 1).configs(topicConfig);
 
             adminClient.createTopics(Collections.singletonList(topic)).all().get();
             System.out.println("Topic created successfully.");
